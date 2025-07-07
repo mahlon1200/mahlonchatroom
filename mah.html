@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mahlon Tech | Group Chat</title>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@joeattardi/emoji-button@4.6.2/dist/index.min.js"></script>
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #000;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      height: 100vh;
+      margin: 0;
+    }
+
+    #chatBox {
+      flex: 1;
+      width: 100%;
+      max-width: 600px;
+      overflow-y: auto;
+      border: 1px solid #07d800;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background-color: #111;
+    }
+
+    .message {
+      margin: 8px 0;
+    }
+
+    .message img {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    input, button {
+      padding: 10px;
+      border-radius: 5px;
+      border: none;
+      margin: 5px;
+    }
+
+    input[type="text"] {
+      width: 60%;
+    }
+
+    button {
+      background: #00e676;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    h2 {
+      margin: 10px 0;
+      color: #0f0;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Mahlon Tech Group Chat</h2>
+
+<div>
+  <input type="text" id="userName" placeholder="Enter your name" />
+  <input type="file" id="profilePicInput" accept="image/*" />
+  <button onclick="joinChat()">Join</button>
+</div>
+
+<div id="chatSection" style="display: none; width: 100%; max-width: 600px;">
+  <div id="chatBox"></div>
+  <input type="text" id="messageInput" placeholder="Type your message..." />
+  <button id="emojiButton">😊</button>
+  <button onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCoxm5cpVZ0JR3Ega_b0B9QblWKigrE-Ww",
+    authDomain: "mahlon-tech-chatroom.firebaseapp.com",
+    projectId: "mahlon-tech-chatroom",
+    storageBucket: "mahlon-tech-chatroom.appspot.com",
+    messagingSenderId: "650194304959",
+    appId: "1:650194304959:web:4c61af626982128e142b0a",
+    databaseURL: "https://mahlon-tech-chatroom-default-rtdb.firebaseio.com"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  let currentUser = "";
+  let profilePicURL = "";
+
+  const picker = new EmojiButton();
+  picker.on('emoji', emoji => {
+    document.getElementById("messageInput").value += emoji;
+  });
+  document.querySelector('#emojiButton').addEventListener('click', () => {
+    picker.togglePicker(document.querySelector('#emojiButton'));
+  });
+
+  function joinChat() {
+    const nameInput = document.getElementById("userName").value.trim();
+    const fileInput = document.getElementById("profilePicInput").files[0];
+    if (!nameInput) return alert("Enter your name to join the chat.");
+    currentUser = nameInput;
+
+    if (fileInput) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        profilePicURL = e.target.result;
+        afterJoin();
+      };
+      reader.readAsDataURL(fileInput);
+    } else {
+      profilePicURL = "https://via.placeholder.com/30";
+      afterJoin();
+    }
+  }
+
+  function afterJoin() {
+    document.getElementById("chatSection").style.display = "block";
+    document.getElementById("userName").disabled = true;
+    document.getElementById("profilePicInput").disabled = true;
+    listenForMessages();
+    sendSystemMessage(`${currentUser} joined the chat.`);
+  }
+
+  function sendMessage() {
+    const message = document.getElementById("messageInput").value.trim();
+    if (!message) return;
+
+    db.ref("messages").push({
+      user: currentUser,
+      text: message,
+      timestamp: new Date().toLocaleString(),
+      pic: profilePicURL,
+      status: "sent"
+    });
+
+    document.getElementById("messageInput").value = "";
+  }
+
+  function listenForMessages() {
+    db.ref("messages").on("child_added", (snapshot) => {
+      const data = snapshot.val();
+      const key = snapshot.key;
+      const chatBox = document.getElementById("chatBox");
+
+      let statusText = "";
+      if (data.user === currentUser) {
+        statusText = ` <span style="font-size: 0.75em; color: gray;">[${data.status}]</span>`;
+      }
+
+      const msg = document.createElement("div");
+      msg.className = "message";
+      msg.innerHTML = `
+        <img src="${data.pic}" alt="pfp" />
+        <strong>${data.user}</strong>: ${data.text} ${statusText}
+        <br><small>${data.timestamp}</small>
+      `;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      // Mark as delivered if it's from someone else
+      if (data.user !== currentUser && data.status === "sent") {
+        db.ref("messages/" + key).update({ status: "delivered" });
+      }
+    });
+  }
+
+  function sendSystemMessage(text) {
+    db.ref("messages").push({
+      user: "🟢 System",
+      text: text,
+      timestamp: new Date().toLocaleString(),
+      pic: "https://via.placeholder.com/30/0f0/fff?text=S",
+      status: "seen"
+    });
+  }
+
+  // Detect visibility to mark messages as seen
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      db.ref("messages").once("value", (snapshot) => {
+        snapshot.forEach(child => {
+          const data = child.val();
+          if (data.user !== currentUser && data.status === "delivered") {
+            db.ref("messages/" + child.key).update({ status: "seen" });
+          }
+        });
+      });
+    }
+  });
+
+  // Ask notification permission
+  if ("Notification" in window) {
+    Notification.requestPermission();
+  }
+</script>
+
+</body>
+</html>
